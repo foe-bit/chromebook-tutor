@@ -1,18 +1,14 @@
 const CACHE_NAME = 'tutor-v1';
-const MODEL_URL = "https://storage.googleapis.com/jmstore/gemma_2b_it_gpu_int4.bin";
+// We don't list the model here because the main thread handles that massive download manually
+const ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.png'];
 
-self.addEventListener('install', (e) => self.skipWaiting());
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
+  self.skipWaiting();
+});
+
 self.addEventListener('fetch', (e) => {
-  // Caching the 1.3GB model is the most important part
-  if (e.request.url === MODEL_URL) {
-    e.respondWith(caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(e.request);
-      if (cached) return cached;
-      const net = await fetch(e.request);
-      cache.put(e.request, net.clone());
-      return net;
-    }));
-  } else {
-    e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request)));
-  }
+  e.respondWith(
+    caches.match(e.request).then((res) => res || fetch(e.request))
+  );
 });

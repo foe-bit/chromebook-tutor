@@ -4,12 +4,18 @@ const ui = {
   chat: document.getElementById('chat-container'),
   input: document.getElementById('user-input'),
   send: document.getElementById('send-btn'),
-  status: document.getElementById('status-bar'),
-  install: document.getElementById('install-btn')
+  install: document.getElementById('install-btn'),
+  progressBox: document.getElementById('progress-container'),
+  progressBar: document.getElementById('dl-bar'),
+  statusText: document.getElementById('status-text')
 };
 
-// 1. Service Worker & Install
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js');
+// 1. Service Worker (Required for PWA)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js');
+}
+
+// 2. Install Button Logic
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault(); deferredPrompt = e; ui.install.style.display = 'block';
@@ -18,34 +24,68 @@ ui.install.onclick = async () => {
   if(deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; ui.install.style.display='none'; }
 };
 
-// 2. Chat Logic
+// 3. Chat Logic
 let idleTimer;
 const resetIdle = () => {
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { unloadAI(); ui.status.textContent = "💤 Sleeping..."; ui.status.style.display='block'; }, 300000); // 5 mins
+  idleTimer = setTimeout(() => { 
+    unloadAI(); 
+    appendMessage("System", "💤 AI went to sleep to save battery. Type to wake it up."); 
+  }, 5 * 60 * 1000); // 5 mins
 };
+
+function appendMessage(sender, text) {
+  const div = document.createElement('div');
+  div.className = `message ${sender.toLowerCase()}`;
+  div.innerText = text;
+  ui.chat.appendChild(div);
+  ui.chat.scrollTop = ui.chat.scrollHeight;
+}
 
 ui.send.onclick = async () => {
   const text = ui.input.value.trim();
   if(!text) return;
+
   ui.input.value = '';
-  ui.chat.innerHTML += `<div class="message user">${text}</div>`;
-  ui.send.disabled = true; ui.status.style.display = 'block'; ui.status.textContent = "Thinking...";
+  appendMessage('user', text);
+  ui.send.disabled = true; 
   
   try {
-    if(!isReady()) await loadAI(msg => ui.status.textContent = msg);
+    if(!isReady()) {
+      ui.progressBox.style.display = 'block';
+      await loadAI(
+        (msg) => ui.statusText.textContent = msg,
+        (pct) => ui.progressBar.value = pct
+      );
+      ui.progressBox.style.display = 'none';
+    }
+    
+    // Tiny delay to let UI update
+    ui.statusText.textContent = "Thinking...";
     const reply = await askGemma(text);
-    ui.chat.innerHTML += `<div class="message ai">${reply}</div>`;
-    ui.status.style.display = 'none';
-  } catch(e) { ui.chat.innerHTML += `<div class="message ai">Error: ${e.message}</div>`; }
-  
-  ui.send.disabled = false; resetIdle();
+    appendMessage('ai', reply);
+    
+  } catch(e) { 
+    appendMessage('ai', "Error: " + e.message); 
+    ui.progressBox.style.display = 'none';
+  } finally {
+    ui.send.disabled = false; resetIdle();
+  }
 };
 
-document.getElementById('clear-btn').onclick = () => { clearChat(); ui.chat.innerHTML = ''; };
+document.getElementById('clear-btn').onclick = () => { 
+  clearChat(); 
+  ui.chat.innerHTML = ''; 
+  appendMessage('ai', "Chat cleared!");
+};
 
-// 3. Start
-ui.status.style.display = 'block';
-loadAI(msg => ui.status.textContent = msg).then(() => {
-  ui.status.style.display = 'none'; resetIdle();
+// 4. Initial Boot
+ui.progressBox.style.display = 'block';
+loadAI(
+  (msg) => ui.statusText.textContent = msg,
+  (pct) => ui.progressBar.value = pct
+).then(() => {
+  ui.progressBox.style.display = 'none';
+  appendMessage('ai', "Hello! I'm ready to help. (Offline Mode Active)");
+  resetIdle();
 });
